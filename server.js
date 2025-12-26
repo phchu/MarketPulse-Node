@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const YahooFinance = require('yahoo-finance2').default;
@@ -15,6 +16,8 @@ app.use(express.static(__dirname));
 // --- Configuration ---
 const SP500_URL = 'https://www.slickcharts.com/sp500';
 const NASDAQ100_URL = 'https://www.slickcharts.com/nasdaq100';
+// API Key loaded from .env
+const GOOGLE_SHEETS_API_URL = process.env.GOOGLE_SHEETS_API_URL;
 
 // Sector translation map
 const sectorMapping = {
@@ -131,6 +134,36 @@ function getBucket(changeVal) {
     return '<-5%';
 }
 
+// Fetch High/Low data from Google Sheets
+async function fetchHighLowData() {
+    try {
+        const response = await axios.get(GOOGLE_SHEETS_API_URL);
+        const rows = response.data.values;
+        if (!rows || rows.length < 2) return {};
+
+        const highLowMap = {};
+        // Skip header row (index 0)
+        for (let i = 1; i < rows.length; i++) {
+            const [symbol, mh, ml, yh, yl] = rows[i];
+            if (symbol) {
+                // Ensure format matches YF symbols (e.g. BRK.B -> BRK-B)
+                const safeSym = symbol.replace('.', '-');
+                highLowMap[safeSym] = {
+                    mh: parseFloat(mh), // Month High
+                    ml: parseFloat(ml), // Month Low
+                    yh: parseFloat(yh), // Year High
+                    yl: parseFloat(yl)  // Year Low
+                };
+            }
+        }
+        console.log(`Fetched High/Low data for ${Object.keys(highLowMap).length} symbols.`);
+        return highLowMap;
+    } catch (error) {
+        console.error('Error fetching High/Low data from Google Sheets:', error.message);
+        return {};
+    }
+}
+
 // Fetch S&P 500 List from Slickcharts (with caching)
 async function fetchSp500List() {
     try {
@@ -224,7 +257,7 @@ function initStats() {
 }
 
 // Update Group Stats Helper
-function updateGroupStats(groupName, stockObj, sector, marketCap, groupData) {
+function updateGroupStats(groupName, stockObj, sector, marketCap, groupData, highLowData) {
     const { sectors, dist, stocks } = groupData;
     
     // Add to all-stocks list (for frontend compatibility)
@@ -336,6 +369,9 @@ async function updateData() {
             interval: '1d'
         };
 
+        // Fetch external High/Low data once
+        const highLowData = await fetchHighLowData();
+
         for (let i = 0; i < cleanSymbols.length; i += BATCH_SIZE) {
             const batch = cleanSymbols.slice(i, i + BATCH_SIZE);
             if (i % 50 === 0) console.log(`Processing ${i}/${cleanSymbols.length}...`);
@@ -436,19 +472,26 @@ async function updateData() {
                 const yearChange = getChangeFromPrice(currentPrice, history, 240);
                 
                 // Calculate monthly high/low from historical data
-                const monthHL = getHighLow(history, 20);
-                
-                // Use Yahoo Finance's built-in 52-week high/low instead of calculating
-                // Fallback to calculation only if not available
+                // Calculate monthly high/low
+                // PRIORITIZE External Google Sheets Data
+                let monthHL = { high: null, low: null };
                 let yearHL = { high: null, low: null };
-                if (quote && quote.fiftyTwoWeekHigh !== undefined && quote.fiftyTwoWeekLow !== undefined) {
-                    yearHL = {
-                        high: quote.fiftyTwoWeekHigh,
-                        low: quote.fiftyTwoWeekLow
-                    };
+                const externalData = highLowData[sym];
+
+                if (externalData) {
+                    monthHL = { high: externalData.mh, low: externalData.ml };
+                    yearHL = { high: externalData.yh, low: externalData.yl };
                 } else {
-                    // Fallback to manual calculation if quote data unavailable
-                    yearHL = getHighLow(history, 240);
+                    // Fallback to internal calculation
+                    monthHL = getHighLow(history, 20);
+                     if (quote && quote.fiftyTwoWeekHigh !== undefined && quote.fiftyTwoWeekLow !== undefined) {
+                        yearHL = {
+                            high: quote.fiftyTwoWeekHigh,
+                            low: quote.fiftyTwoWeekLow
+                        };
+                    } else {
+                        yearHL = getHighLow(history, 240);
+                    }
                 }
                 
                 // Track latest market date
@@ -738,7 +781,10 @@ app.listen(PORT, () => {
     // - Market hours (Mon-Fri 9:30-16:00 ET): refresh every 60 seconds
     // - Off-hours: refresh every 60 minutes (to get updated historical data)
     
-    function scheduleNextUpdate() {
+    // - Market hours (Mon-Fri 9:30-16:00 ET): refresh every 60 seconds
+    // - Off-hours: refresh every 60 minutes (to get updated historical data)
+
+function scheduleNextUpdate() {
         const marketOpen = isMarketOpen();
         
         let interval;
