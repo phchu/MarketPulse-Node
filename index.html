@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S&P 500 Sector Heatmap</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        /* Progress Bar */
+        #progress-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background-color: #333;
+            z-index: 1000;
+        }
+        #progress-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            /* animation set dynamically via JS */
+            width: 100%;
+        }
+        @keyframes countdown {
+            from { width: 100%; }
+            to { width: 0%; }
+        }
+        
+        /* Change Highlight Animation */
+        @keyframes highlightChange {
+            0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
+            50% { box-shadow: 0 0 20px 10px rgba(255, 215, 0, 0.3); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .sector-changed {
+            animation: highlightChange 2s ease-out, pulse 0.5s ease-out;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 1400px;
+            padding: 60px 20px 20px 20px;
+        }
+        
+        h1 {
+            color: #ffffff;
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        #chart-container {
+            width: 100%;
+            height: 60vh;
+            min-height: 400px;
+            background-color: #1a1a1a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        #distribution-container {
+            width: 100%;
+            height: 30vh;
+            min-height: 300px;
+            background-color: #1a1a1a;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        #stock-list-container {
+            width: 100%;
+            background-color: #212121;
+            border-radius: 8px;
+            margin-top: 20px;
+            padding: 20px;
+            box-sizing: border-box;
+            display: none;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            color: #e0e0e0;
+        }
+        
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #424242;
+        }
+        
+        th {
+            background-color: #333;
+            color: #fff;
+            position: sticky;
+            top: 0;
+        }
+        
+        .stock-link {
+            color: #64B5F6;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .stock-link:hover {
+            text-decoration: underline;
+            color: #90CAF9;
+        }
+        
+        .up { color: #fe4343; }
+        .down { color: #00e676; }
+        .flat { color: #bdbdbd; }
+        
+        .legend {
+            margin-bottom: 10px;
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .box {
+            width: 15px;
+            height: 15px;
+            display: inline-block;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        
+        select {
+            font-size: 16px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            cursor: pointer;
+        }
+        
+        label {
+            font-size: 16px;
+            margin-right: 10px;
+            color: #fff;
+        }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 18px;
+                line-height: 1.4;
+            }
+            
+            .container {
+                padding: 50px 10px 10px 10px;
+            }
+            
+            #chart-container {
+                height: 50vh;
+                min-height: 300px;
+            }
+            
+            #distribution-container {
+                height: 40vh;
+                min-height: 250px;
+            }
+            
+            table {
+                font-size: 14px;
+            }
+            
+            th, td {
+                padding: 8px 4px;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .controls > div {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            
+            select {
+                flex: 1;
+                max-width: 200px;
+            }
+            
+            .extremes-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Extremes Statistics */
+        .extremes-section {
+            margin-top: 30px;
+            width: 100%;
+        }
+        
+        .extremes-section h2 {
+            color: #fff;
+            font-size: 18px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .extremes-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .extreme-box {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+        
+        .extreme-box:hover {
+            background: #333;
+            border-color: #64B5F6;
+            transform: translateY(-2px);
+        }
+        
+        .extreme-box.high {
+            border-left: 4px solid #e53935;
+        }
+        
+        .extreme-box.low {
+            border-left: 4px solid #43a047;
+        }
+        
+        .extreme-label {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 8px;
+        }
+        
+        .extreme-count {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .extreme-count.high {
+            color: #e53935;
+        }
+        
+        .extreme-count.low {
+            color: #43a047;
+        }
+    </style>
+</head>
+<body>
+    <!-- Progress Bar -->
+    <div id="progress-container">
+        <div id="progress-bar"></div>
+    </div>
+    
+    <div class="container">
+        <h1>US Market Sector Heatmap <span id="last-update-time" style="font-size: 14px; color: #aaa;"></span></h1>
+        
+        <div class="controls">
+            <!-- Index Selector -->
+            <div>
+                <label for="index-select">Index:</label>
+                <select id="index-select">
+                    <option value="sp500">S&P 500</option>
+                    <option value="nasdaq100">NASDAQ 100</option>
+                </select>
+            </div>
+
+            <!-- Timeframe Selector -->
+            <div>
+                <label for="timeframe-select">Timeframe:</label>
+                <select id="timeframe-select">
+                    <option value="daily">Daily</option>
+                    <option value="week">1 Week</option>
+                    <option value="month">1 Month</option>
+                    <option value="year">1 Year</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <div class="legend-item"><span class="box" style="background-color: #e53935;"></span> 漲 (Up)</div>
+            <div class="legend-item"><span class="box" style="background-color: #757575;"></span> 平 (Flat)</div>
+            <div class="legend-item"><span class="box" style="background-color: #43a047;"></span> 跌 (Down)</div>
+        </div>
+
+        <div id="chart-container"></div>
+        
+        <h2 id="dist-title">Stock Distribution</h2>
+        <div id="distribution-container"></div>
+        
+        <!-- Extremes Statistics Section -->
+        <div class="extremes-section">
+            <h2>價格統計 (Price Extremes)</h2>
+            <div class="extremes-grid">
+                <div class="extreme-box high" id="month-high-box">
+                    <div class="extreme-label">近月新高</div>
+                    <div class="extreme-count high" id="month-high-count">-</div>
+                </div>
+                <div class="extreme-box low" id="month-low-box">
+                    <div class="extreme-label">近月新低</div>
+                    <div class="extreme-count low" id="month-low-count">-</div>
+                </div>
+                <div class="extreme-box high" id="year-high-box">
+                    <div class="extreme-label">近年新高</div>
+                    <div class="extreme-count high" id="year-high-count">-</div>
+                </div>
+                <div class="extreme-box low" id="year-low-box">
+                    <div class="extreme-label">近年新低</div>
+                    <div class="extreme-count low" id="year-low-count">-</div>
+                </div>
+            </div>
+        </div>
+        
+    </div> <!-- end container -->
+
+
+
+    <script>
+        const chartDom = document.getElementById('chart-container');
+        const myChart = echarts.init(chartDom, 'dark');
+
+        const distDom = document.getElementById('distribution-container');
+        const distChart = echarts.init(distDom, 'dark');
+        
+        // State
+        let fullMarketData = null;
+        let currentSource = 'sp500';
+        let currentPeriod = 'daily';
+        let lastUpdateTimestamp = null;
+        let autoRefreshInterval = null;
+        let previousData = {}; // Track previous values for change detection
+
+        // Fetch Data from API
+        function fetchData() {
+            fetch('/api/sector-performance')
+                .then(res => res.json())
+                .then(data => {
+                    fullMarketData = data;
+                    updateCharts();
+                })
+                .catch(error => {
+                    console.error('Error loading data from API:', error);
+                });
+            
+            // Fetch status to get lastPriceDate timestamp
+            fetch('/api/status')
+                .then(res => res.json())
+                .then(status => {
+                    if (status.lastPriceDate) {
+                        lastUpdateTimestamp = new Date(status.lastPriceDate);
+                        updateTimestamp();
+                    }
+                    
+                    // Sync next refresh with server cache TTL
+                    if (status.nextUpdate) {
+                         const nextTime = new Date(status.nextUpdate);
+                         const now = new Date();
+                         const remainingMs = Math.max(0, nextTime - now);
+                         
+                         console.log(`Server next update: ${nextTime.toLocaleTimeString()}, Refreshing in ${Math.round(remainingMs/1000)}s`);
+                         
+                         // Clear existing interval if any
+                         if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+                         if (window.nextRefreshTimeout) clearTimeout(window.nextRefreshTimeout);
+                         
+                         // Set timeout for next refresh (+2s buffer)
+                         window.nextRefreshTimeout = setTimeout(() => {
+                             console.log('Auto-refreshing data (synced)...');
+                             fetchData();
+                         }, remainingMs + 2000);
+                         
+                         // Update progress bar
+                         resetProgressBar(remainingMs / 1000);
+                    } else {
+                        // Fallback if no nextUpdate provided (e.g. market closed or first load)
+                         if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+                         if (window.nextRefreshTimeout) clearTimeout(window.nextRefreshTimeout);
+                         
+                         // Default 90 sec (1.5 min)
+                         resetProgressBar(90);
+                         window.nextRefreshTimeout = setTimeout(() => {
+                             fetchData();
+                         }, 90000);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
+                    // Fallback on error
+                    if (window.nextRefreshTimeout) clearTimeout(window.nextRefreshTimeout);
+                    window.nextRefreshTimeout = setTimeout(fetchData, 60000); 
+                });
+        }
+        
+        // Update timestamp display (US Eastern Time)
+        function updateTimestamp() {
+            if (lastUpdateTimestamp) {
+                const timeStr = lastUpdateTimestamp.toLocaleString('en-US', {
+                    timeZone: 'America/New_York',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                });
+                document.getElementById('last-update-time').textContent = `(Market Data: ${timeStr} ET)`;
+            }
+        }
+
+        // Initial fetch
+        fetchData();
+        
+        // Progress bar reset function with dynamic synchronization
+        // Uses negative animation delay to ensure the bar moves at the correct speed
+        function resetProgressBar(remainingSeconds) {
+            const progressBar = document.getElementById('progress-bar');
+            
+            // Determine total cycle duration based on remaining time
+            // If remaining > 200s, assume it's the 1-hour off-market cycle (3600s)
+            // Otherwise assume it's the 90s market-open cycle (1.5 min)
+            const totalDuration = remainingSeconds > 200 ? 3600 : 90;
+            
+            // Calculate how much time has already "passed" in this cycle
+            // We use this as a negative delay to jump-start the animation
+            const elapsed = totalDuration - remainingSeconds;
+            
+            // Reset animation
+            progressBar.style.animation = 'none';
+            progressBar.offsetHeight; /* trigger reflow */
+            
+            // Set animation with negative delay
+            // duration: total cycle time
+            // delay: -elapsed time (starts the animation mid-way)
+            progressBar.style.animation = `countdown ${totalDuration}s linear`;
+            progressBar.style.animationDelay = `-${elapsed}s`;
+        }
+        
+        // Initial progress bar start (default 3 min)
+        resetProgressBar(180);
+
+        // Index Change Listener
+        document.getElementById('index-select').addEventListener('change', (e) => {
+            currentSource = e.target.value;
+            updateCharts();
+        });
+
+        // Timeframe Change Listener
+        document.getElementById('timeframe-select').addEventListener('change', (e) => {
+            currentPeriod = e.target.value;
+            updateCharts();
+        });
+
+        function updateCharts() {
+            if (!fullMarketData) return;
+            
+            // Access data based on current source
+            const sourceData = fullMarketData[currentSource];
+            if (!sourceData) return;
+            
+            renderHeatmap(sourceData.performance);
+            renderDistribution(sourceData.distribution);
+            updateExtremes(sourceData.extremes);
+            
+            // Update titles
+            const titleMap = { 'sp500': 'S&P 500', 'nasdaq100': 'NASDAQ 100' };
+            document.getElementById('dist-title').innerText = `${titleMap[currentSource]} Stock Distribution`;
+        }
+        
+        // Update Extremes Statistics
+        function updateExtremes(extremes) {
+            if (!extremes) return;
+            
+            document.getElementById('month-high-count').textContent = extremes.monthHigh?.length || 0;
+            document.getElementById('month-low-count').textContent = extremes.monthLow?.length || 0;
+            document.getElementById('year-high-count').textContent = extremes.yearHigh?.length || 0;
+            document.getElementById('year-low-count').textContent = extremes.yearLow?.length || 0;
+        }
+        
+        // Extreme box click handlers
+        document.getElementById('month-high-box').addEventListener('click', () => {
+            window.open(`/stock-list?index=${currentSource}&period=${currentPeriod}&type=monthly-high`, '_blank');
+        });
+        document.getElementById('month-low-box').addEventListener('click', () => {
+            window.open(`/stock-list?index=${currentSource}&period=${currentPeriod}&type=monthly-low`, '_blank');
+        });
+        document.getElementById('year-high-box').addEventListener('click', () => {
+            window.open(`/stock-list?index=${currentSource}&period=${currentPeriod}&type=yearly-high`, '_blank');
+        });
+        document.getElementById('year-low-box').addEventListener('click', () => {
+            window.open(`/stock-list?index=${currentSource}&period=${currentPeriod}&type=yearly-low`, '_blank');
+        });
+
+        // Adapted Render Functions that accept data as arg
+        function renderHeatmap(sectorData) {
+            // Store current data key for this view
+            const dataKey = `${currentSource}_${currentPeriod}`;
+            
+            // sectorData is array of objects
+            const treeMapData = sectorData.map(item => {
+                const sectorKey = item.chinese_name;
+                const currentValue = item[currentPeriod];
+                const previousValue = previousData[dataKey]?.[sectorKey];
+                
+                // Determine if value changed and direction
+                let changeArrow = '';
+                let hasChanged = false;
+                if (previousValue !== undefined && previousValue !== currentValue) {
+                    hasChanged = true;
+                    if (currentValue > previousValue) {
+                        changeArrow = '↑';
+                    } else if (currentValue < previousValue) {
+                        changeArrow = '↓';
+                    }
+                }
+                
+                return {
+                    name: item.chinese_name,
+                    value: item.weight || 1,
+                    performance: currentValue,
+                    previousPerformance: previousValue,
+                    changeArrow: changeArrow,
+                    hasChanged: hasChanged,
+                    weight: item.weight,
+                    stocks: item.stocks,
+                    itemStyle: {
+                        color: getColor(currentValue),
+                        borderColor: hasChanged ? '#FFD700' : '#000',
+                        borderWidth: hasChanged ? 2 : 1
+                    }
+                };
+            });
+            
+            // Update previous data for next comparison
+            if (!previousData[dataKey]) {
+                previousData[dataKey] = {};
+            }
+            sectorData.forEach(item => {
+                previousData[dataKey][item.chinese_name] = item[currentPeriod];
+            });
+            
+            // ... (Rest of options similar to before, using new data struct)
+            const option = {
+                title: { text: 'Sector Heatmap (' + currentPeriod + ')', left: 'center' },
+                backgroundColor: '#1a1a1a',
+                tooltip: {
+                    formatter: function (info) {
+                        var value = info.data.performance !== undefined ? info.data.performance.toFixed(2) : 'N/A';
+                        var weightDisp = info.data.weight ? (info.data.weight / 1e9).toFixed(1) + 'B' : 'N/A';
+                        
+                        var tooltipContent = [
+                            '<div class="tooltip-title">' + echarts.format.encodeHTML(info.name) + '</div>',
+                            'Current: ' + value + '%<br>',
+                            'Market Cap: ' + weightDisp
+                        ];
+                        
+                        // Add previous value if available
+                        if (info.data.previousPerformance !== undefined) {
+                            var prevVal = info.data.previousPerformance.toFixed(2);
+                            var change = (info.data.performance - info.data.previousPerformance).toFixed(2);
+                            tooltipContent.splice(2, 0, 
+                                'Previous: ' + prevVal + '% (' + (change >= 0 ? '+' : '') + change + ')<br>'
+                            );
+                        }
+                        
+                        return tooltipContent.join('');
+                    }
+                },
+                series: [{
+                    type: 'treemap',
+                    data: treeMapData,
+                    width: '100%',
+                    height: '90%',
+                    top: '10%',
+                    roam: false,
+                    nodeClick: false, 
+                    breadcrumb: { show: false },
+                    label: {
+                        show: true,
+                        formatter: function (info) {
+                            var val = info.data.performance !== undefined ? info.data.performance.toFixed(2) : '0.00';
+                            var arrow = info.data.changeArrow || '';
+                            var prevVal = '';
+                            
+                            // Show previous value if available
+                            if (info.data.previousPerformance !== undefined) {
+                                prevVal = '\n{prev|(' + info.data.previousPerformance.toFixed(2) + '%>' + val + '%)}'; 
+                            }
+                            
+                            return '{name|' + info.name + '}\n{val|' + arrow + ' ' + val + '%}' + prevVal;
+                        },
+                        rich: {
+                            name: {
+                                fontSize: 16,
+                                fontWeight: 'bold',
+                                color: '#fff',
+                                padding: [0, 0, 5, 0]
+                            },
+                            val: {
+                                fontSize: 14,
+                                fontWeight: 'bold',
+                                color: '#fff'
+                            },
+                            prev: {
+                                fontSize: 11,
+                                color: '#bbb',
+                                fontStyle: 'italic'
+                            }
+                        }
+                    },
+                    itemStyle: {
+                        borderColor: '#000',
+                        borderWidth: 1,
+                        gapWidth: 1
+                    }
+                }]
+            };
+
+            myChart.setOption(option, true); // true = not merge, replace
+            
+            // Heatmap Click Event - Open in new tab
+            myChart.off('click');
+            myChart.on('click', function(params) {
+                if (params.data && params.data.stocks) {
+                    openStockListTab(params.name, params.data.stocks);
+                }
+            });
+        }
+        
+        function renderDistribution(distDataAllPeriods) {
+            const data = distDataAllPeriods[currentPeriod];
+            // Updated: 11 intervals with 1% precision throughout (extremes merged)
+            const categories = ['>5%', '3~5%', '2~3%', '1~2%', '0~1%', '0', '0~-1%', '-1~-2%', '-2~-3%', '-3~-5%', '<-5%'];
+            const counts = categories.map(cat => (data[cat] ? data[cat].length : 0));
+            
+            const colors = categories.map(cat => {
+               if (cat === '0') return '#757575';
+               if (cat.includes('-') || cat.includes('<')) return '#43a047'; 
+               return '#e53935'; 
+            });
+
+            const distOption = {
+                backgroundColor: '#1a1a1a',
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' }
+                },
+                grid: { containLabel: true, bottom: '10%' },
+                xAxis: {
+                    type: 'category',
+                    data: categories,
+                    axisLabel: { interval: 0, rotate: 0 }
+                },
+                yAxis: {
+                    type: 'value',
+                    splitLine: { show: false }
+                },
+                series: [{
+                    data: counts.map((val, idx) => ({
+                        value: val,
+                        itemStyle: { color: colors[idx] }
+                    })),
+                    type: 'bar',
+                    label: {
+                        show: true,
+                        position: 'top',
+                        color: '#fff'
+                    }
+                }]
+            };
+            
+            distChart.setOption(distOption, true); // true = replace, not merge
+            
+            // Distribution Chart Click - Open in new tab
+            distChart.off('click');
+            distChart.on('click', function(params) {
+                const bucket = params.name;
+                const stocks = data[bucket] || [];
+                openStockListTab(bucket, stocks, 'distribution');
+            });
+        }
+
+        // Open Stock List in New Tab (using server endpoint)
+        function openStockListTab(title, stocks, type = 'sector') {
+            const params = new URLSearchParams({
+                index: currentSource,
+                period: currentPeriod,
+                type: type,
+                name: title.replace('Distribution: ', '')
+            });
+            
+            window.open(`/stock-list?${params.toString()}`, '_blank');
+        }
+
+        // Color mapping function (Taiwan Style: Red=Up, Green=Down)
+        // Adjusted thresholds for more visible color differences
+        function getColor(value) {
+            if (value > 0) {
+                // Red Scale - More sensitive thresholds
+                if (value > 1.0) return '#b71c1c';  // Deep Red (was >2.0)
+                if (value > 0.5) return '#d32f2f';  // Medium-Dark Red (was >1.0)
+                if (value > 0.2) return '#f44336';  // Medium Red (was >0.5)
+                return '#ef5350'; // Light Red (slightly darker than before)
+            } else if (value < 0) {
+                // Green Scale - More sensitive thresholds
+                if (value < -1.0) return '#1b5e20'; // Deep Green (was <-2.0)
+                if (value < -0.5) return '#2e7d32'; // Medium-Dark Green (was <-1.0)
+                if (value < -0.2) return '#43a047'; // Medium Green (was <-0.5)
+                return '#66bb6a'; // Light Green (same as before)
+            } else {
+                return '#757575'; // Gray
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            myChart.resize();
+            distChart.resize();
+        });
+    </script>
+</body>
+</html>
